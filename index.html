@@ -5335,6 +5335,7 @@ function shuffle(arr) {
 }
 
 function showQuizWord() {
+  updateProgress();
   if (quizIdx >= quizWords.length) {
     document.getElementById('quizZh').textContent = `🎉 完成！正确率 ${quizCorrect}/${quizWords.length}`;
     document.getElementById('quizFeedback').textContent = '';
@@ -5407,7 +5408,6 @@ function checkSpelling() {
 function nextQuiz() {
   quizIdx++;
   showQuizWord();
-  updateQuizProgress();
 }
 
 function updateScore() {
@@ -5567,15 +5567,6 @@ async function removeFavFromDB(wordEn) {
 }
 
 
-function updateQuizProgress() {
-  if (!quizWords || quizWords.length === 0) return;
-  const total = quizWords.length;
-  const done = Math.min(quizIdx, total);
-  const pct = Math.round((done / total) * 100);
-  const fill = document.getElementById('quizProgressFill');
-  if (fill) fill.style.width = pct + '%';
-  document.getElementById('scoreTotal').textContent = quizCorrect + quizWrong;
-}
 
 window.addEventListener('load', initAuth);
 
