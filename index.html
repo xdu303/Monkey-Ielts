@@ -4970,10 +4970,12 @@ function toggleFavR(btn) {
     delete favs[wid];
     btn.textContent = '☆'; btn.classList.remove('starred');
     showToast('已取消收藏 ' + wordData.w);
+    removeFavFromDB(wid);
   } else {
     favs[wid] = wordData;
     btn.textContent = '★'; btn.classList.add('starred');
     showToast('⭐ 已收藏 ' + wordData.w);
+    saveFavToDB({ en: wid, zh: wordData.zh, ipa: wordData.ipa || '', part: wordData.source || '' });
   }
   setFavs(favs);
 }
@@ -5147,12 +5149,13 @@ function toggleFav(wordId, wordData) {
   if (favs[wordId]) {
     delete favs[wordId];
     showToast('已取消收藏 ' + wordData.w);
+    removeFavFromDB(wordId);
   } else {
     favs[wordId] = wordData;
     showToast('⭐ 已收藏 ' + wordData.w);
+    saveFavToDB({ en: wordId, zh: wordData.zh || wordData.w, ipa: wordData.ipa || '', part: wordData.part || '' });
   }
   setFavs(favs);
-  // Update all fav buttons for this word
   document.querySelectorAll(`.fav-btn[data-id="${wordId}"]`).forEach(btn => {
     btn.textContent = favs[wordId] ? '★' : '☆';
     btn.classList.toggle('starred', !!favs[wordId]);
@@ -5309,6 +5312,7 @@ let quizWords = [], quizIdx = 0, quizCorrect = 0, quizWrong = 0, quizAnswered = 
 let currentQuizFilter = 'all';
 
 function quizReset(catFilter) {
+  const fill = document.getElementById('quizProgressFill'); if(fill) fill.style.width='0%';
   if (catFilter !== undefined) currentQuizFilter = catFilter;
   quizWords = shuffle(getAllWords(currentQuizFilter));
   quizIdx = 0; quizCorrect = 0; quizWrong = 0;
@@ -5403,6 +5407,7 @@ function checkSpelling() {
 function nextQuiz() {
   quizIdx++;
   showQuizWord();
+  updateQuizProgress();
 }
 
 function updateScore() {
@@ -5537,20 +5542,39 @@ async function loadFavoritesFromDB() {
   if (error) { console.error(error); return; }
   const favObj = {};
   data.forEach(f => { favObj[f.word_en] = { zh: f.word_zh, ipa: f.ipa, part: f.part }; });
-  localStorage.setItem('favs', JSON.stringify(favObj));
+  localStorage.setItem('ielts_favs', JSON.stringify(favObj));
 }
 
 async function saveFavToDB(word) {
   if (!currentUser) return;
-  await supa.from('favorites').upsert({
-    user_id: currentUser.id, word_en: word.en,
-    word_zh: word.zh, ipa: word.ipa || '', part: word.part || ''
-  }, { onConflict: 'user_id,word_en' });
+  // First delete any existing entry, then insert fresh
+  await supa.from('favorites')
+    .delete()
+    .eq('user_id', currentUser.id)
+    .eq('word_en', word.en);
+  await supa.from('favorites').insert({
+    user_id: currentUser.id,
+    word_en: word.en,
+    word_zh: word.zh || '',
+    ipa: word.ipa || '',
+    part: word.part || ''
+  });
 }
 
 async function removeFavFromDB(wordEn) {
   if (!currentUser) return;
   await supa.from('favorites').delete().eq('user_id', currentUser.id).eq('word_en', wordEn);
+}
+
+
+function updateQuizProgress() {
+  if (!quizWords || quizWords.length === 0) return;
+  const total = quizWords.length;
+  const done = Math.min(quizIdx, total);
+  const pct = Math.round((done / total) * 100);
+  const fill = document.getElementById('quizProgressFill');
+  if (fill) fill.style.width = pct + '%';
+  document.getElementById('scoreTotal').textContent = quizCorrect + quizWrong;
 }
 
 window.addEventListener('load', initAuth);
