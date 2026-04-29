@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🐒 猴子雅思备考</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root {
   --teal:       #00887A;
@@ -700,6 +701,93 @@ html, body { margin:0; padding:0; height:100%; }
   .main-panel { padding:20px 16px 80px; }
 }
 
+
+/* ═══════════════ LOGIN SCREEN ═══════════════ */
+#loginScreen {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(8,15,26,0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: none; align-items: center; justify-content: center;
+}
+#loginScreen:not(.hidden) { display: flex; }
+
+.login-box {
+  width: 100%; max-width: 380px;
+  background: #0D1B2A;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 20px;
+  padding: 40px 36px;
+  display: flex; flex-direction: column; align-items: center;
+}
+.login-monkey { font-size: 56px; margin-bottom: 8px; }
+.login-title {
+  font-size: 22px; font-weight: 900; color: #fff;
+  margin-bottom: 4px; letter-spacing: -0.5px;
+}
+.login-title span { color: #00C2A8; }
+.login-sub {
+  font-size: 13px; color: rgba(255,255,255,0.35);
+  margin-bottom: 32px; font-weight: 600;
+}
+.login-field {
+  width: 100%; margin-bottom: 14px;
+}
+.login-field label {
+  display: block; font-size: 11px; font-weight: 800;
+  color: rgba(255,255,255,0.4); letter-spacing: 1px;
+  text-transform: uppercase; margin-bottom: 6px;
+}
+.login-field input {
+  width: 100%; padding: 12px 16px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; color: #fff;
+  font-family: inherit; font-size: 15px;
+  outline: none; box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+.login-field input:focus { border-color: #00887A; }
+.login-field input::placeholder { color: rgba(255,255,255,0.2); }
+.login-btn {
+  width: 100%; padding: 14px;
+  background: #00887A; color: #fff;
+  border: none; border-radius: 10px;
+  font-family: inherit; font-size: 15px; font-weight: 800;
+  cursor: pointer; margin-top: 8px;
+  transition: background 0.2s, transform 0.1s;
+}
+.login-btn:hover { background: #00A090; }
+.login-btn:active { transform: scale(0.98); }
+.login-btn:disabled { background: rgba(255,255,255,0.1); cursor: not-allowed; }
+.login-error {
+  color: #FF6B6B; font-size: 13px; font-weight: 600;
+  margin-top: 12px; text-align: center; min-height: 20px;
+}
+
+/* Logout button in sidebar */
+.sidebar-logout {
+  margin: 12px 16px;
+  padding: 8px 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.4);
+  font-size: 12px; font-weight: 700;
+  cursor: pointer; text-align: center;
+  transition: all 0.15s;
+}
+.sidebar-logout:hover { 
+  background: rgba(255,80,80,0.1); 
+  border-color: rgba(255,80,80,0.3);
+  color: #FF6B6B; 
+}
+.sidebar-user {
+  padding: 10px 18px 0;
+  font-size: 11px; color: rgba(255,255,255,0.3);
+  font-weight: 700; letter-spacing: 0.5px;
+}
+
 </style>
 </head>
 <body>
@@ -782,7 +870,7 @@ html, body { margin:0; padding:0; height:100%; }
 </svg>
     <h1 class="hero-title">猴子<span>雅思</span>备考</h1>
     <p class="hero-subtitle">剑桥雅思 4–20 全套真题 · 听说读写四技能<br>词汇音标 · 解题技巧 · 完整范文</p>
-    <button class="hero-cta" onclick="document.querySelector('.app-layout').scrollIntoView({behavior:'smooth'})">
+    <button class="hero-cta" onclick="showLogin()">
       开始备考 <span style="font-size:18px">→</span>
     </button>
     <p style="font-size:20px;font-weight:900;color:#00C2A8;letter-spacing:1px;margin-top:20px">猴猴学习，猴猴向上 🐒</p>
@@ -863,6 +951,8 @@ html, body { margin:0; padding:0; height:100%; }
       <span class="si">📄</span> Task 2 · 大作文
     </div>
   </div>
+  <div class="sidebar-user" id="sidebarUser"></div>
+  <div class="sidebar-logout" onclick="doLogout()">退出登录</div>
 </aside>
   <div class="main-content" id="mainContent">
 <div id="mp-vocab" class="main-panel active">
@@ -5376,10 +5466,185 @@ function renderQuizDir() {
 // ══════════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════════
-renderVocab('all');
-renderQuizDir();
-
+// Auth will trigger renderVocab and renderQuizDir after login
 quizReset();
+
+// ═══════════════════════════════════════════════════
+//  SUPABASE AUTH
+// ═══════════════════════════════════════════════════
+const SUPA_URL = 'https://hqrxzooquukrnqgldyhp.supabase.co';
+const SUPA_KEY = 'sb_publishable_WDavcvEtLRlIr6zEWCNytg_SuMFcSBK';
+const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+let currentUser = null;
+
+function showLogin() {
+  document.getElementById('loginScreen').classList.remove('hidden');
+}
+
+async function initAuth() {
+  const { data: { session } } = await supa.auth.getSession();
+  if (session) {
+    onLoggedIn(session.user);
+  }
+  // If not logged in, just stay on hero — login triggered by CTA button
+}
+
+async function doLogin() {
+  const username = document.getElementById('loginUser').value.trim();
+  const password = document.getElementById('loginPass').value;
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('loginError');
+  if (!username || !password) { err.textContent = '请输入账号和密码'; return; }
+  btn.disabled = true; btn.textContent = '登录中...'; err.textContent = '';
+  const email = username.includes('@') ? username : username + '@monkey-ielts.com';
+  const { data, error } = await supa.auth.signInWithPassword({ email, password });
+  if (error) {
+    err.textContent = '账号或密码错误，请重试';
+    btn.disabled = false; btn.textContent = '登录'; return;
+  }
+  onLoggedIn(data.user);
+}
+
+function onLoggedIn(user) {
+  currentUser = user;
+  document.getElementById('loginScreen').classList.add('hidden');
+  const username = user.email.replace('@monkey-ielts.com', '');
+  document.getElementById('sidebarUser').textContent = '👤 ' + username;
+  loadFavoritesFromDB();
+  renderVocab('all');
+  renderQuizDir();
+  // Scroll to app
+  setTimeout(() => {
+    const app = document.querySelector('.app-layout');
+    if (app) app.scrollIntoView({ behavior: 'smooth' });
+  }, 300);
+}
+
+async function doLogout() {
+  await supa.auth.signOut();
+  currentUser = null;
+  document.getElementById('loginUser').value = '';
+  document.getElementById('loginPass').value = '';
+  document.getElementById('sidebarUser').textContent = '';
+  // Go back to hero
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function loadFavoritesFromDB() {
+  if (!currentUser) return;
+  const { data, error } = await supa.from('favorites').select('*').eq('user_id', currentUser.id);
+  if (error) { console.error(error); return; }
+  const favObj = {};
+  data.forEach(f => { favObj[f.word_en] = { zh: f.word_zh, ipa: f.ipa, part: f.part }; });
+  localStorage.setItem('favs', JSON.stringify(favObj));
+}
+
+async function saveFavToDB(word) {
+  if (!currentUser) return;
+  await supa.from('favorites').upsert({
+    user_id: currentUser.id, word_en: word.en,
+    word_zh: word.zh, ipa: word.ipa || '', part: word.part || ''
+  }, { onConflict: 'user_id,word_en' });
+}
+
+async function removeFavFromDB(wordEn) {
+  if (!currentUser) return;
+  await supa.from('favorites').delete().eq('user_id', currentUser.id).eq('word_en', wordEn);
+}
+
+window.addEventListener('load', initAuth);
+
 </script>
+
+<!-- ═══════════════ LOGIN SCREEN ═══════════════ -->
+<div id="loginScreen" class="hidden">
+  <div class="login-box">
+    <svg style="width:120px;height:120px;filter:drop-shadow(0 8px 24px rgba(0,136,122,0.4));animation:float 4s ease-in-out infinite;margin-bottom:16px" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer glow ring -->
+  <circle cx="200" cy="200" r="188" fill="none" stroke="#00887A" stroke-width="2" opacity="0.3"/>
+  <!-- Left ear outer -->
+  <circle cx="52" cy="205" r="54" fill="#C07848"/>
+  <!-- Right ear outer -->
+  <circle cx="348" cy="205" r="54" fill="#C07848"/>
+  <!-- Left ear inner -->
+  <circle cx="52" cy="205" r="33" fill="#E8956A"/>
+  <!-- Right ear inner -->
+  <circle cx="348" cy="205" r="33" fill="#E8956A"/>
+  <!-- Head base -->
+  <circle cx="200" cy="200" r="170" fill="#C07848"/>
+  <!-- Face lighter area -->
+  <ellipse cx="200" cy="228" rx="128" ry="118" fill="#E8B07A"/>
+  <!-- Forehead dark cap area -->
+  <path d="M70,170 Q130,60 200,55 Q270,60 330,170 Q290,95 200,90 Q110,95 70,170Z" fill="#7A4820"/>
+  <!-- Graduation cap board -->
+  <rect x="118" y="72" width="164" height="22" rx="5" fill="#00887A"/>
+  <!-- Cap top -->
+  <rect x="188" y="44" width="24" height="30" fill="#00887A"/>
+  <!-- Cap tassel base -->
+  <polygon points="200,28 236,64 164,64" fill="#00C2A8"/>
+  <!-- Tassel string -->
+  <line x1="235" y1="64" x2="248" y2="108" stroke="#00C2A8" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="248" cy="114" r="6" fill="#00C2A8"/>
+  <!-- Left eye white -->
+  <circle cx="152" cy="188" r="34" fill="white"/>
+  <!-- Right eye white -->
+  <circle cx="248" cy="188" r="34" fill="white"/>
+  <!-- Left iris (teal) -->
+  <circle cx="152" cy="190" r="22" fill="#00887A"/>
+  <!-- Right iris (teal) -->
+  <circle cx="248" cy="190" r="22" fill="#00887A"/>
+  <!-- Left pupil -->
+  <circle cx="155" cy="193" r="12" fill="#040D18"/>
+  <!-- Right pupil -->
+  <circle cx="251" cy="193" r="12" fill="#040D18"/>
+  <!-- Left eye shine -->
+  <circle cx="160" cy="185" r="6" fill="white"/>
+  <!-- Right eye shine -->
+  <circle cx="256" cy="185" r="6" fill="white"/>
+  <!-- Left eyebrow -->
+  <path d="M126,162 Q152,150 178,158" stroke="#7A4820" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <!-- Right eyebrow -->
+  <path d="M222,158 Q248,150 274,162" stroke="#7A4820" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <!-- Nose -->
+  <ellipse cx="200" cy="240" rx="24" ry="17" fill="#A06030"/>
+  <!-- Nostrils: single inverted triangle -->
+  <polygon points="200,237 192,250 208,250" fill="#7A4020"/>
+  <!-- Philtrum 人中: one line -->
+  <line x1="200" y1="251" x2="200" y2="266" stroke="#8A4828" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+  <!-- Mouth smile -->
+  <path d="M166,270 Q200,308 234,270" stroke="#7A4020" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <!-- Teeth -->
+  <path d="M174,278 Q200,298 226,278 Q200,285 174,278Z" fill="white"/>
+  <!-- Cheek blush left -->
+  <circle cx="120" cy="248" r="22" fill="#E8607A" opacity="0.25"/>
+  <!-- Cheek blush right -->
+  <circle cx="280" cy="248" r="22" fill="#E8607A" opacity="0.25"/>
+  <!-- IELTS book in hand (decorative) -->
+  <rect x="292" y="288" width="72" height="90" rx="6" fill="#77A6F7" transform="rotate(12,328,333)"/>
+  <rect x="296" y="292" width="64" height="82" rx="4" fill="#5B8FE0" transform="rotate(12,328,333)"/>
+  <text x="328" y="342" text-anchor="middle" font-size="10" font-weight="900" fill="white" transform="rotate(12,328,333)">IELTS</text>
+  <!-- Pencil left hand -->
+  <rect x="38" y="296" width="12" height="80" rx="4" fill="#FFCC44" transform="rotate(-15,44,336)"/>
+  <polygon points="38,376 50,376 44,398" fill="#F0A000" transform="rotate(-15,44,336)"/>
+  <rect x="38" y="294" width="12" height="12" rx="2" fill="#FF6B6B" transform="rotate(-15,44,336)"/>
+</svg>
+    <div class="login-title">猴子<span>雅思</span>备考</div>
+    <div class="login-sub">请输入你的账号和密码</div>
+    <div class="login-field">
+      <label>账号</label>
+      <input type="text" id="loginUser" placeholder="例如：student01" autocomplete="username"
+        onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()">
+    </div>
+    <div class="login-field">
+      <label>密码</label>
+      <input type="password" id="loginPass" placeholder="输入密码" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="login-btn" id="loginBtn" onclick="doLogin()">登录</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
 </body>
 </html>
