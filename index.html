@@ -886,7 +886,7 @@ html, body { margin:0; padding:0; height:100%; }
   <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
     <div class="name">🐒 <span>猴子</span>雅思备考</div>
-    <div class="sub">Cambridge IELTS 4–20</div>
+    <div class="sub">Cambridge IELTS 4–20 · v2.4-favfix</div>
   </div>
 
   <div class="sb-section">
@@ -4963,6 +4963,7 @@ function filterRCat(catId, el) {
 }
 
 function toggleFavR(btn) {
+  console.log("toggleFavR called:", btn.dataset.id);
   const wid = btn.dataset.id;
   const favs = getFavs();
   const wordData = {w: btn.dataset.w, zh: btn.dataset.zh, ipa: btn.dataset.ipa, source: btn.dataset.src};
@@ -5145,6 +5146,7 @@ function getFavs() {
 function setFavs(f) { localStorage.setItem('ielts_favs', JSON.stringify(f)); }
 
 function toggleFav(wordId, wordData) {
+  console.log("toggleFav called:", wordId, wordData);
   const favs = getFavs();
   if (favs[wordId]) {
     delete favs[wordId];
