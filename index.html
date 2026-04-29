@@ -886,7 +886,7 @@ html, body { margin:0; padding:0; height:100%; }
   <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
     <div class="name">🐒 <span>猴子</span>雅思备考</div>
-    <div class="sub">Cambridge IELTS 4–20 · v2.4-favfix</div>
+    <div class="sub">Cambridge IELTS 4–20 · v2.6</div>
   </div>
 
   <div class="sb-section">
@@ -5328,6 +5328,7 @@ function quizReset(catFilter) {
     return;
   }
   showQuizWord();
+  saveQuizProgress();
 }
 
 function shuffle(arr) {
@@ -5401,6 +5402,8 @@ function checkSpelling() {
   }
   quizAnswered = true;
   updateScore();
+  updateProgress(quizIdx + 1);  // 答完题立即填充进度条，不用等点"下一题"
+  saveQuizProgress();
   const sb = document.getElementById('quizSpeakBtn');
   if (sb) sb.style.visibility = 'visible';
   const ipaEl = document.getElementById('quizIpa');
@@ -5410,6 +5413,7 @@ function checkSpelling() {
 function nextQuiz() {
   quizIdx++;
   showQuizWord();
+  saveQuizProgress();
 }
 
 function updateScore() {
@@ -5418,8 +5422,9 @@ function updateScore() {
   document.getElementById('scoreTotal').textContent = quizCorrect + quizWrong;
 }
 
-function updateProgress() {
-  const pct = quizWords.length ? (quizIdx / quizWords.length * 100) : 0;
+function updateProgress(n) {
+  const count = (n !== undefined) ? n : quizIdx;
+  const pct = quizWords.length ? (count / quizWords.length * 100) : 0;
   document.getElementById('quizProgressFill').style.width = pct + '%';
 }
 
@@ -5513,14 +5518,15 @@ async function doLogin() {
   onLoggedIn(data.user);
 }
 
-function onLoggedIn(user) {
+async function onLoggedIn(user) {
   currentUser = user;
   document.getElementById('loginScreen').classList.add('hidden');
   const username = user.email.replace('@monkey-ielts.com', '');
   document.getElementById('sidebarUser').textContent = '👤 ' + username;
-  loadFavoritesFromDB();
+  await loadFavoritesFromDB();  // 先加载收藏，再渲染词汇，确保星标状态正确
   renderVocab('all');
   renderQuizDir();
+  await loadQuizProgress();    // renderQuizDir 之后加载，确保分类按钮已渲染
   // Scroll to app
   setTimeout(() => {
     const app = document.querySelector('.app-layout');
@@ -5538,13 +5544,32 @@ async function doLogout() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// 根据 wid 从词汇数据或 DOM 反查英文单词
+function getWordByWid(wid) {
+  const m = wid.match(/^(p[1-4])-(\d+)-(\d+)$/);
+  if (m) {
+    const arr = {p1:PART1, p2:PART2, p3:PART3, p4:PART4}[m[1]];
+    return arr?.[parseInt(m[2])]?.words[parseInt(m[3])]?.w;
+  }
+  return document.querySelector(`.fav-btn[data-id="${wid}"]`)?.dataset.w;
+}
+
 async function loadFavoritesFromDB() {
   if (!currentUser) return;
   const { data, error } = await supa.from('favorites').select('*').eq('user_id', currentUser.id);
   if (error) { console.error(error); return; }
   const favObj = {};
-  data.forEach(f => { favObj[f.word_en] = { zh: f.word_zh, ipa: f.ipa, part: f.part }; });
+  data.forEach(f => {
+    const w = getWordByWid(f.word_en) || f.word_en;
+    favObj[f.word_en] = { w, zh: f.word_zh, ipa: f.ipa, part: f.part };
+  });
   localStorage.setItem('ielts_favs', JSON.stringify(favObj));
+  // 更新所有静态收藏按钮的星标状态（阅读词汇是静态 HTML，需要手动同步）
+  document.querySelectorAll('.fav-btn[data-id]').forEach(btn => {
+    const isFav = !!favObj[btn.dataset.id];
+    btn.textContent = isFav ? '★' : '☆';
+    btn.classList.toggle('starred', isFav);
+  });
 }
 
 async function saveFavToDB(word) {
@@ -5566,6 +5591,100 @@ async function saveFavToDB(word) {
 async function removeFavFromDB(wordEn) {
   if (!currentUser) return;
   await supa.from('favorites').delete().eq('user_id', currentUser.id).eq('word_en', wordEn);
+}
+
+// ══════════════════════════════════════════════════════
+//  QUIZ PROGRESS PERSISTENCE
+// ══════════════════════════════════════════════════════
+
+// 词对象 → 紧凑引用 {c: catId, i: wordIndex}，减少 DB 存储体积
+function wordToRef(wordObj) {
+  const parts = {p1:PART1, p2:PART2, p3:PART3, p4:PART4};
+  const partKey = Object.keys(parts).find(k => wordObj.catId && wordObj.catId.startsWith(k));
+  if (!partKey) return null;
+  const cat = parts[partKey].find(c => c.id === wordObj.catId);
+  if (!cat) return null;
+  const idx = cat.words.findIndex(w => w.w === wordObj.w);
+  return idx >= 0 ? {c: wordObj.catId, i: idx} : null;
+}
+
+// 紧凑引用 → 还原完整词对象
+function refToWord(ref) {
+  const parts = {p1:PART1, p2:PART2, p3:PART3, p4:PART4};
+  const partKey = Object.keys(parts).find(k => ref.c.startsWith(k));
+  if (!partKey) return null;
+  const cat = parts[partKey].find(c => c.id === ref.c);
+  if (!cat || !cat.words[ref.i]) return null;
+  const label = {p1:'Part 1', p2:'Part 2', p3:'Part 3', p4:'Part 4'}[partKey];
+  return {...cat.words[ref.i], source: label, sourceCat: cat.scene||cat.topic, color: cat.color, catId: cat.id};
+}
+
+async function saveQuizProgress() {
+  if (!quizWords.length || !currentUser) return;
+  const state = {
+    filter: currentQuizFilter,
+    words: quizWords.map(wordToRef).filter(r => r !== null),
+    idx: quizIdx,
+    correct: quizCorrect,
+    wrong: quizWrong
+  };
+  // localStorage 做本地备份，刷新后即可恢复
+  localStorage.setItem('quiz_prog_' + currentUser.id, JSON.stringify(state));
+  // 写入 Supabase（先删再插，兼容没有 unique constraint 的表结构）
+  try {
+    await supa.from('quiz_progress').delete().eq('user_id', currentUser.id);
+    await supa.from('quiz_progress').insert({
+      user_id: currentUser.id,
+      filter: state.filter,
+      word_list: JSON.stringify(state.words),
+      idx: state.idx,
+      correct: state.correct,
+      wrong: state.wrong
+    });
+  } catch(e) { console.warn('quiz_progress 保存失败:', e.message); }
+}
+
+async function loadQuizProgress() {
+  if (!currentUser) return;
+  let state = null;
+  // 优先从 Supabase 加载（跨设备同步）
+  const { data } = await supa.from('quiz_progress').select('*').eq('user_id', currentUser.id).maybeSingle();
+  if (data) {
+    state = {
+      filter: data.filter,
+      words: JSON.parse(data.word_list || '[]'),
+      idx: data.idx || 0,
+      correct: data.correct || 0,
+      wrong: data.wrong || 0
+    };
+  } else {
+    // 回退到 localStorage（离线或 DB 无记录时）
+    const local = localStorage.getItem('quiz_prog_' + currentUser.id);
+    if (local) { try { state = JSON.parse(local); } catch{} }
+  }
+  if (!state || !state.words.length) return;
+  // 还原词表和进度
+  const restored = state.words.map(refToWord).filter(w => w !== null);
+  if (!restored.length) return;
+  currentQuizFilter = state.filter;
+  quizWords = restored;
+  quizIdx = state.idx;
+  quizCorrect = state.correct;
+  quizWrong = state.wrong;
+  updateScore();
+  // 高亮上次使用的分类按钮
+  document.querySelectorAll('.qdir-btn').forEach(b => {
+    b.classList.toggle('qdir-active', b.dataset.cat === currentQuizFilter);
+  });
+  // 恢复题目界面
+  if (quizIdx < quizWords.length) {
+    showQuizWord();
+  } else {
+    // 上次已完成，显示完成画面
+    document.getElementById('quizZh').textContent = `🎉 上次已完成！正确率 ${quizCorrect}/${quizWords.length}`;
+    document.getElementById('quizInput').disabled = true;
+    updateProgress();
+  }
 }
 
 
@@ -5662,6 +5781,9 @@ window.addEventListener('load', initAuth);
     <div class="login-error" id="loginError"></div>
   </div>
 </div>
+
+<!-- Toast 提示元素（必须存在，否则 showToast 会报 TypeError 导致收藏功能完全失效） -->
+<div id="toast" class="toast"></div>
 
 </body>
 </html>
